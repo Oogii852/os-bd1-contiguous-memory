@@ -13,7 +13,7 @@ $(TARGET): $(OBJ)
 	$(CC) $(CFLAGS) -c $< -o $@
 
 test: $(TARGET)
-	./$(TARGET) 1048576 < tests/basic.txt
+	./$(TARGET) 1000 < tests/basic.txt
 
 clean:
 	rm -f $(OBJ) $(TARGET)
