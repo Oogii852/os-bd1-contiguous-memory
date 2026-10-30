@@ -21,6 +21,7 @@ public class Main extends Application {
     private Label stats, error;
     private TextField totalField, nameField, sizeField, cmdField;
     private ComboBox<String> strategy;
+    private final java.util.Map<String, Color> colors = new java.util.HashMap<>(); // process -> өнгө
 
     @Override
     public void start(Stage stage) {
@@ -95,6 +96,7 @@ public class Main extends Application {
     private void initMemory() {
         try {
             mm = new MemoryManager(Long.parseLong(totalField.getText().trim()));
+            colors.clear();
             error.setText("");
             log.appendText("INIT: санах ой = " + mm.total() + " байт\n");
         } catch (NumberFormatException e) {
@@ -125,8 +127,9 @@ public class Main extends Application {
 
     private void showError(String msg) { error.setText("Алдаа: " + msg); }
 
-    private static Color colorOf(String name) {
-        return Color.hsb(Math.abs(name.hashCode()) % 360, 0.55, 0.85);
+    // Process бүрт өөр өнгө: орж ирсэн дарааллаар golden-angle hue өгнө
+    private Color colorOf(String name) {
+        return colors.computeIfAbsent(name, n -> Color.hsb((colors.size() * 137.5) % 360, 0.55, 0.85));
     }
 
     /** Memory layout: address 0 доор, өндөр хаяг дээр (номын Figure 9.7-той адил). */
@@ -158,10 +161,17 @@ public class Main extends Application {
         double lx = barX + barW + 20, ly = top + 10;
         g.setFill(Color.LIGHTGRAY); g.fillRect(lx, ly, 16, 16);
         g.setFill(Color.BLACK); g.fillText("Hole (чөлөөт)", lx + 24, ly + 8);
-        g.setFill(Color.CORNFLOWERBLUE); g.fillRect(lx, ly + 24, 16, 16);
-        g.setFill(Color.BLACK); g.fillText("Process (өнгө бүр өөр)", lx + 24, ly + 32);
-        g.fillText("Доод = хаяг 0, дээд = өндөр хаяг", lx, ly + 58);
-        g.fillText("Жижиг блокийн нэр харагдахгүй бол STAT дар", lx, ly + 76);
+        double row = ly + 24;
+        java.util.Set<String> seen = new java.util.LinkedHashSet<>();
+        for (MemoryManager.Block b : mm.snapshot()) if (!b.isHole()) seen.add(b.owner());
+        for (String p : seen) { // байгаа process бүрийн өнгө legend-д
+            g.setFill(colorOf(p)); g.fillRect(lx, row, 16, 16);
+            g.setFill(Color.BLACK); g.fillText("Process " + p, lx + 24, row + 8);
+            row += 24;
+        }
+        g.setFill(Color.BLACK);
+        g.fillText("Доод = хаяг 0, дээд = өндөр хаяг", lx, row + 10);
+        g.fillText("Жижиг блокийн нэр харагдахгүй бол STAT дар", lx, row + 28);
 
         long free = mm.free();
         double pct = free == 0 ? 0 : 100.0 * mm.externalFragmentation() / free;
