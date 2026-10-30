@@ -1,0 +1,10 @@
+# Cli-д: java -cp target/classes cma.Cli 1048576 < examples/book_example.txt
+RQ P0 200000 F
+RQ P1 350000 B
+RQ P2 300000 W
+STAT
+RL P1
+RQ P3 400000 F
+C
+RQ P3 400000 F
+STAT
