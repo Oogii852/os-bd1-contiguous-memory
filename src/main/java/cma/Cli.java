@@ -19,10 +19,10 @@ public class Cli {
             return;
         }
         BufferedReader in = new BufferedReader(new InputStreamReader(System.in));
-        System.out.print("allocator> ");
+        System.out.print("allocator>");
         String line;
         while ((line = in.readLine()) != null) {
-            if (line.trim().equalsIgnoreCase("EXIT")) break;
+            if (line.trim().equalsIgnoreCase("X")) break; // номын X (exit) команд
             if (!line.isBlank() && !line.startsWith("#")) {
                 try {
                     System.out.println(mm.execute(line));
@@ -30,7 +30,7 @@ public class Cli {
                     System.out.println("ERROR: " + e.getMessage());
                 }
             }
-            System.out.print("allocator> ");
+            System.out.print("allocator>");
         }
     }
 }

@@ -61,7 +61,7 @@ public class Main extends Application {
             new Label("Process нэр:"), nameField,
             new Label("Хэмжээ (байт):"), sizeField,
             new Label("Strategy:"), strategy, row1, row2, new Separator(),
-            new Label("Команд (RQ/RL/C/STAT):"), cmdField, error);
+            new Label("Команд (RQ/RL/C/STAT/X):"), cmdField, error);
         controls.setPadding(new Insets(10));
         controls.setPrefWidth(250);
 
@@ -108,6 +108,10 @@ public class Main extends Application {
     }
 
     private void apply(String cmd) {
+        if (cmd != null && cmd.trim().equalsIgnoreCase("X")) { // X: програмаас гарах
+            javafx.application.Platform.exit();
+            return;
+        }
         try {
             String res = mm.execute(cmd);
             error.setText("");

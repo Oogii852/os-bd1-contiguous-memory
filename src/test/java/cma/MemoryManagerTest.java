@@ -24,7 +24,7 @@ class MemoryManagerTest {
             m.allocate("P3", 100, "F");
             m.release("P2");
             var b = m.allocate("P4", 150, s);
-            assertEquals(s.equals("B") ? 300 : 400, b.start());
+            assertEquals(s.equals("B") ? 300 : 600, b.start()); // B: 200-ийн hole (300), W: 400-ийн hole (600)
         }
     }
 
@@ -81,5 +81,8 @@ class MemoryManagerTest {
         assertThrows(IllegalArgumentException.class, () -> m.execute("HELLO"));
         assertThrows(IllegalArgumentException.class, () -> m.execute(""));
         assertTrue(m.execute("STAT").contains("Process P0"));
+        // STAT формат номын жишээтэй ижил: Addresses [start:end] Process P / Unused
+        assertEquals("Addresses [0:39999] Process P0\nAddresses [40000:1048575] Unused", m.stat());
+        assertEquals("Гарлаа", m.execute("X"));
     }
 }

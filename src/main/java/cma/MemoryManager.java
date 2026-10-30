@@ -134,9 +134,9 @@ public class MemoryManager {
     public String stat() {
         StringBuilder sb = new StringBuilder();
         for (Block b : blocks) {
-            sb.append("Addresses [").append(b.start()).append(" : ").append(b.end()).append("] ")
+            sb.append("Addresses [").append(b.start()).append(":").append(b.end()).append("] ")
               .append(b.isHole() ? "Unused" : "Process " + b.owner())
-              .append(" (").append(b.size()).append(" байт)\n");
+              .append("\n");
         }
         return sb.toString().stripTrailing();
     }
@@ -168,8 +168,11 @@ public class MemoryManager {
             case "STAT": {
                 return stat();
             }
+            case "X": {
+                return "Гарлаа";
+            }
             default:
-                throw new IllegalArgumentException("Үл мэдэгдэх команд: '" + t[0] + "'. Боломжит: RQ, RL, C, STAT");
+                throw new IllegalArgumentException("Үл мэдэгдэх команд: '" + t[0] + "'. Боломжит: RQ, RL, C, STAT, X");
         }
     }
 }
