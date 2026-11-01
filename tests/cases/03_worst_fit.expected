@@ -1,0 +1,10 @@
+Амжилттай: P1 -> [0 : 299]
+Амжилттай: P2 -> [300 : 499]
+Амжилттай: P3 -> [500 : 599]
+Чөлөөлсөн: P2
+Амжилттай: P4 -> [600 : 749]
+Addresses [0:299] Process P1
+Addresses [300:499] Unused
+Addresses [500:599] Process P3
+Addresses [600:749] Process P4
+Addresses [750:999] Unused

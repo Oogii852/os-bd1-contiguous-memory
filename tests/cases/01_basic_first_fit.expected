@@ -1,0 +1,5 @@
+Амжилттай: P1 -> [0 : 299]
+Амжилттай: P2 -> [300 : 499]
+Addresses [0:299] Process P1
+Addresses [300:499] Process P2
+Addresses [500:999] Unused

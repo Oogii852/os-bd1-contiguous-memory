@@ -1,0 +1,15 @@
+Амжилттай: P0 -> [0 : 199999]
+Амжилттай: P1 -> [200000 : 549999]
+Амжилттай: P2 -> [550000 : 849999]
+Addresses [0:199999] Process P0
+Addresses [200000:549999] Process P1
+Addresses [550000:849999] Process P2
+Addresses [850000:1048575] Unused
+Чөлөөлсөн: P1
+ERROR: External fragmentation: нийт чөлөөт зай 548576 байт хүрэлцэх боловч хамгийн том hole 350000 байт. Compaction (C) хийнэ үү.
+Compaction дууслаа, шилжүүлсэн: 300000 байт
+Амжилттай: P3 -> [500000 : 899999]
+Addresses [0:199999] Process P0
+Addresses [200000:499999] Process P2
+Addresses [500000:899999] Process P3
+Addresses [900000:1048575] Unused

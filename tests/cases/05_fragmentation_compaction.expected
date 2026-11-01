@@ -1,0 +1,11 @@
+Амжилттай: P1 -> [0 : 299]
+Амжилттай: P2 -> [300 : 599]
+Амжилттай: P3 -> [600 : 899]
+Чөлөөлсөн: P2
+ERROR: External fragmentation: нийт чөлөөт зай 400 байт хүрэлцэх боловч хамгийн том hole 300 байт. Compaction (C) хийнэ үү.
+Compaction дууслаа, шилжүүлсэн: 300 байт
+Амжилттай: P4 -> [600 : 949]
+Addresses [0:299] Process P1
+Addresses [300:599] Process P3
+Addresses [600:949] Process P4
+Addresses [950:999] Unused
