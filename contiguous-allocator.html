@@ -1,0 +1,1004 @@
+<title>Contiguous Allocator</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans+Condensed:wght@600&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+<style>
+/* Layout: full-width address-space strip on top; console + request form on the left, search trace + comparison + report metrics on the right; block table underneath. */
+:root {
+  --bg: #E9EEEB;
+  --surface: #F7F9F8;
+  --surface-2: #EDF2EF;
+  --ink: #15211C;
+  --muted: #586A62;
+  --line: #C5D1CB;
+  --accent: #0E6B5E;
+  --accent-ink: #F4FBF8;
+  --accent-soft: #D3E9E2;
+  --hole-bg: #F7F9F8;
+  --hole-line: #BDCBC4;
+  --p-s: 52%;
+  --p-l: 64%;
+  --p-ink: #10201A;
+  --p-edge: rgba(16, 32, 26, .30);
+  --ok: #1B7A47;
+  --warn: #9A5F00;
+  --err: #B3261E;
+  --term-bg: #FFFFFF;
+  --focus: #0E6B5E;
+  --font-ui: 'IBM Plex Sans', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  --font-display: 'IBM Plex Sans Condensed', 'IBM Plex Sans', system-ui, sans-serif;
+  --font-mono: 'IBM Plex Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0F1613; --surface: #17211D; --surface-2: #1D2B26; --ink: #E6EFEA; --muted: #93A69D;
+    --line: #2C3D36; --accent: #4FC3AE; --accent-ink: #06211B; --accent-soft: #1D3A33;
+    --hole-bg: #17211D; --hole-line: #324640; --p-s: 40%; --p-l: 38%; --p-ink: #F1F7F4;
+    --p-edge: rgba(255, 255, 255, .22); --ok: #5CCB8C; --warn: #E0A244; --err: #FF8A80;
+    --term-bg: #111B17; --focus: #4FC3AE; color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #0F1613; --surface: #17211D; --surface-2: #1D2B26; --ink: #E6EFEA; --muted: #93A69D;
+  --line: #2C3D36; --accent: #4FC3AE; --accent-ink: #06211B; --accent-soft: #1D3A33;
+  --hole-bg: #17211D; --hole-line: #324640; --p-s: 40%; --p-l: 38%; --p-ink: #F1F7F4;
+  --p-edge: rgba(255, 255, 255, .22); --ok: #5CCB8C; --warn: #E0A244; --err: #FF8A80;
+  --term-bg: #111B17; --focus: #4FC3AE; color-scheme: dark;
+}
+
+* { box-sizing: border-box; }
+body {
+  background: var(--bg);
+  color: var(--ink);
+  font: 14px/1.5 var(--font-ui);
+  padding-block: 20px 40px;
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+}
+.wrap { max-width: 1180px; margin: 0 auto; display: flex; flex-direction: column; gap: 16px; }
+:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+.num { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+
+/* header */
+.top { display: flex; flex-wrap: wrap; gap: 16px 32px; align-items: flex-end; justify-content: space-between; }
+h1 { font: 600 28px/1.1 var(--font-display); letter-spacing: .01em; margin: 0; text-wrap: balance; }
+.sub { margin: 6px 0 0; color: var(--muted); max-width: 62ch; }
+.init { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.init label { font-size: 12px; color: var(--muted); }
+.init-row { display: flex; gap: 8px; }
+.init-row input { width: 150px; min-width: 0; }
+.err-msg { margin: 0; color: var(--err); font-size: 12px; }
+
+/* controls */
+input[type="text"], select, textarea {
+  font: 13px var(--font-mono);
+  color: var(--ink);
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  padding: 7px 9px;
+  min-width: 0;
+}
+select { font-family: var(--font-ui); }
+textarea { width: 100%; resize: vertical; }
+.btn {
+  font: 500 13px var(--font-ui);
+  color: var(--ink);
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  padding: 7px 12px;
+  cursor: pointer;
+}
+.btn:hover:not(:disabled) { background: var(--surface-2); }
+.btn.primary { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
+.btn.primary:hover:not(:disabled) { background: var(--accent); filter: brightness(1.08); }
+.btn.sm { padding: 4px 9px; font-size: 12px; }
+.btn:disabled { opacity: .45; cursor: not-allowed; }
+.tog { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: var(--muted); cursor: pointer; }
+
+.presets { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 10px; }
+.lab { font: 600 11px var(--font-ui); letter-spacing: .08em; text-transform: uppercase; color: var(--muted); }
+.chip {
+  font: 500 13px var(--font-ui); color: var(--ink); background: var(--surface);
+  border: 1px solid var(--line); border-radius: 999px; padding: 5px 12px; cursor: pointer;
+}
+.chip[aria-pressed="true"] { background: var(--accent-soft); border-color: var(--accent); }
+.chip:disabled { opacity: .5; cursor: not-allowed; }
+.note { flex-basis: 100%; margin: 0; color: var(--muted); font-size: 13px; max-width: 96ch; }
+
+/* cards */
+.card { background: var(--surface); border: 1px solid var(--line); border-radius: 6px; padding: 14px 16px; min-width: 0; }
+.card-h { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 16px; margin-bottom: 12px; }
+h2 { font: 600 12px var(--font-ui); letter-spacing: .09em; text-transform: uppercase; color: var(--muted); margin: 0; }
+.h-actions { display: flex; gap: 6px; }
+.cols { display: grid; grid-template-columns: minmax(0, 1.08fr) minmax(0, 1fr); gap: 16px; align-items: start; }
+.col { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
+.empty { margin: 0; color: var(--muted); }
+.hint { margin: 0; color: var(--muted); font-size: 12px; }
+
+/* memory strip */
+.strip {
+  display: flex; height: 96px; border: 1px solid var(--ink); border-radius: 3px;
+  overflow: hidden; background: var(--hole-bg);
+}
+.blk {
+  appearance: none; border: 0; border-right: 1px solid var(--p-edge); margin: 0; padding: 0;
+  flex: 1 1 0; min-width: 3px; position: relative; display: flex; flex-direction: column;
+  align-items: center; justify-content: center; gap: 2px; overflow: hidden; cursor: pointer;
+  font-family: var(--font-mono); color: var(--ink);
+}
+.blk:last-child { border-right: 0; }
+.blk .l1 { font-size: 13px; font-weight: 500; }
+.blk .l2 { font-size: 11px; opacity: .85; font-variant-numeric: tabular-nums; }
+.blk.proc { background: hsl(var(--h) var(--p-s) var(--p-l)); color: var(--p-ink); }
+.blk.hole {
+  color: var(--muted);
+  background: repeating-linear-gradient(135deg, var(--hole-bg) 0 6px, var(--hole-line) 6px 7px);
+}
+.blk.hole.scan { --hole-bg: var(--accent-soft); }
+.blk.scan, .blk.pick { outline: 3px solid var(--accent); outline-offset: -3px; z-index: 2; }
+.blk.pick { --hole-bg: var(--accent-soft); }
+.blk.hl { outline: 2px solid var(--ink); outline-offset: -2px; z-index: 3; }
+.blk.fresh { animation: fresh .9s ease-out; }
+@keyframes fresh { from { box-shadow: inset 0 0 0 40px var(--accent); } to { box-shadow: inset 0 0 0 40px transparent; } }
+.ruler { position: relative; height: 26px; margin-top: 2px; font: 11px var(--font-mono); color: var(--muted); font-variant-numeric: tabular-nums; }
+.tick { position: absolute; top: 0; padding-top: 8px; white-space: nowrap; transform: translateX(-50%); }
+.tick::before { content: ""; position: absolute; top: 0; left: 50%; height: 6px; border-left: 1px solid var(--muted); }
+.tick.f { transform: none; }
+.tick.f::before { left: 0; }
+.tick.l { transform: translateX(-100%); }
+.tick.l::before { left: auto; right: 0; }
+.readout { margin: 8px 0 0; min-height: 21px; font: 13px var(--font-mono); }
+.legend { display: flex; flex-wrap: wrap; gap: 6px 18px; margin: 10px 0 14px; font-size: 12px; color: var(--muted); }
+.legend span { display: inline-flex; align-items: center; gap: 6px; }
+.sw { display: inline-block; width: 14px; height: 14px; border: 1px solid var(--p-edge); border-radius: 2px; background: hsl(var(--h, 160) var(--p-s) var(--p-l)); }
+.sw.hole { background: repeating-linear-gradient(135deg, var(--hole-bg) 0 3px, var(--hole-line) 3px 4px); border-color: var(--hole-line); }
+
+.metrics { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px 20px; margin: 0; padding-top: 12px; border-top: 1px solid var(--line); }
+.metrics div { min-width: 0; }
+.metrics dt { font-size: 12px; color: var(--muted); }
+.metrics dd { margin: 2px 0 0; font: 500 18px var(--font-mono); font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.metrics small { font-size: 12px; color: var(--muted); margin-left: 6px; font-weight: 400; }
+.meter { height: 4px; background: var(--surface-2); border-radius: 2px; margin-top: 6px; overflow: hidden; border: 1px solid var(--line); }
+.meter i { display: block; height: 100%; background: var(--warn); }
+
+/* console */
+.term {
+  height: 300px; overflow: auto; background: var(--term-bg); border: 1px solid var(--line);
+  border-radius: 4px 4px 0 0; padding: 10px 12px; font: 13px/1.55 var(--font-mono);
+}
+.line { white-space: pre-wrap; overflow-wrap: anywhere; }
+.line .pr { color: var(--accent); }
+.line.err { color: var(--err); }
+.line.ok { color: var(--ok); }
+.line.info { color: var(--muted); }
+.cmdrow { display: flex; align-items: center; background: var(--term-bg); border: 1px solid var(--line); border-top: 0; border-radius: 0 0 4px 4px; padding: 0 12px; }
+.cmdrow .pr { font: 13px var(--font-mono); color: var(--accent); white-space: nowrap; }
+.cmdrow input { flex: 1; border: 0; background: transparent; padding: 9px 6px; font: 13px var(--font-mono); color: var(--ink); }
+.cmdrow input:focus-visible { outline: none; }
+.cmdrow:focus-within { outline: 2px solid var(--focus); outline-offset: 1px; }
+.cmdrow input:disabled { opacity: .5; }
+
+/* request form */
+.rq { display: grid; grid-template-columns: 1fr 1fr; gap: 10px 12px; margin-bottom: 14px; }
+.field { display: flex; flex-direction: column; gap: 4px; min-width: 0; border: 0; padding: 0; margin: 0; }
+.field label, .field legend { font-size: 12px; color: var(--muted); padding: 0; }
+.field input, .field select { width: 100%; }
+.strat { grid-column: 1 / -1; }
+.seg { display: flex; }
+.seg label { flex: 1; position: relative; }
+.seg input { position: absolute; opacity: 0; inset: 0; }
+.seg span { display: block; text-align: center; padding: 7px 6px; border: 1px solid var(--line); background: var(--surface); font-size: 13px; cursor: pointer; margin-left: -1px; }
+.seg label:first-child span { border-radius: 4px 0 0 4px; margin-left: 0; }
+.seg label:last-child span { border-radius: 0 4px 4px 0; }
+.seg b { font-family: var(--font-mono); font-weight: 500; margin-right: 5px; }
+.seg input:checked + span { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); position: relative; z-index: 1; }
+.seg input:focus-visible + span { outline: 2px solid var(--focus); outline-offset: 2px; z-index: 2; }
+.rq .btn { grid-column: 1 / -1; }
+.rowline { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 10px 12px; margin-bottom: 10px; }
+.rowline .field { flex: 1 1 140px; }
+.rowline .hint { flex: 1 1 160px; }
+.det { margin-top: 12px; border-top: 1px solid var(--line); padding-top: 10px; }
+.det summary { cursor: pointer; font-size: 13px; color: var(--muted); }
+.det textarea { margin: 8px 0; }
+
+/* trace / compare / theory */
+.tbl-wrap { overflow-x: auto; }
+table { width: 100%; border-collapse: collapse; font-size: 13px; }
+th { text-align: left; font: 500 12px var(--font-ui); color: var(--muted); padding: 6px 8px; border-bottom: 1px solid var(--line); white-space: nowrap; }
+td { padding: 6px 8px; border-bottom: 1px solid var(--line); vertical-align: middle; }
+td.num, th.r { text-align: right; }
+tr.cur td { background: var(--accent-soft); }
+tr.hl td { background: var(--accent-soft); }
+.vd { display: inline-block; font-size: 12px; padding: 1px 8px; border-radius: 999px; border: 1px solid var(--line); white-space: nowrap; }
+.v-small { color: var(--muted); }
+.v-skip { color: var(--muted); border-style: dashed; }
+.v-fit { color: var(--ink); }
+.v-best { color: var(--accent); border-color: var(--accent); }
+.v-pick { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
+.tr-head { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 4px 12px; margin-bottom: 8px; }
+.tr-head code { font: 500 13px var(--font-mono); }
+.tr-head span { color: var(--muted); font-size: 12px; }
+.tr-sum { margin: 10px 0 0; font-size: 13px; }
+.tr-sum.ok { color: var(--ok); }
+.tr-sum.bad { color: var(--err); }
+.cmp-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
+.cmp { display: grid; grid-template-columns: 28px minmax(78px, auto) 1fr; gap: 2px 10px; align-items: baseline; padding: 8px 6px; border-bottom: 1px solid var(--line); }
+.cmp:last-child { border-bottom: 0; }
+.cmp b { font: 500 15px var(--font-mono); }
+.cmp .where { font: 13px var(--font-mono); overflow-wrap: anywhere; }
+.cmp .rest { grid-column: 2 / -1; color: var(--muted); font-size: 12px; }
+.cmp.hl { background: var(--accent-soft); }
+.cmp.none .where { color: var(--muted); }
+.cmp-note { margin: 10px 0 0; font-size: 12px; color: var(--muted); }
+.theory { margin: 0; display: grid; gap: 14px; }
+.theory dt { font-size: 12px; color: var(--muted); }
+.theory dd { margin: 2px 0 0; }
+.theory .big { font: 500 17px var(--font-mono); font-variant-numeric: tabular-nums; }
+.theory .small { display: block; color: var(--muted); font-size: 12px; margin-top: 2px; max-width: 62ch; }
+.state { display: inline-flex; align-items: center; gap: 8px; }
+
+@media (max-width: 900px) { .cols { grid-template-columns: minmax(0, 1fr); } }
+@media (max-width: 560px) {
+  .tick.mid { display: none; }
+  .strip { height: 84px; }
+  h1 { font-size: 24px; }
+  .rq { grid-template-columns: 1fr; }
+}
+@media (prefers-reduced-motion: reduce) { * { animation: none !important; transition: none !important; } }
+</style>
+
+<div class="wrap" id="app">
+  <header class="top">
+    <div>
+      <h1>Contiguous Allocator</h1>
+      <p class="sub">Залгаа санах ойн хуваарилалтын симулятор · Operating System Concepts, Chapter 9 · Programming Project</p>
+    </div>
+    <form id="initForm" class="init" novalidate>
+      <label for="maxIn">Санах ойн хэмжээ (MAX, байт)</label>
+      <div class="init-row">
+        <input id="maxIn" type="text" inputmode="numeric" value="1048576" autocomplete="off" spellcheck="false">
+        <button class="btn primary" id="resetBtn" type="submit">Эхлүүлэх</button>
+      </div>
+      <p id="maxErr" class="err-msg" role="alert" hidden></p>
+    </form>
+  </header>
+
+  <section class="presets" aria-label="Жишээ сценари">
+    <span class="lab">Жишээ сценари</span>
+    <button type="button" class="chip" data-preset="book" aria-pressed="false">Номын STAT жишээ</button>
+    <button type="button" class="chip" data-preset="frag" aria-pressed="false">Тасархайтал ба шахалт</button>
+    <button type="button" class="chip" data-preset="fbw" aria-pressed="false">F / B / W ялгаа</button>
+    <p class="note" id="presetNote"></p>
+  </section>
+
+  <section class="card" aria-labelledby="h-map">
+    <div class="card-h">
+      <h2 id="h-map">Санах ойн зураглал</h2>
+      <div class="h-actions">
+        <button type="button" class="btn sm" id="undoBtn">Буцаах</button>
+        <button type="button" class="btn sm" id="redoBtn">Дахин хийх</button>
+      </div>
+    </div>
+    <div class="strip" id="strip" role="group" aria-label="Санах ойн блокууд"></div>
+    <div class="ruler" id="ruler" aria-hidden="true"></div>
+    <p class="readout" id="readout" aria-live="polite"></p>
+    <div class="legend">
+      <span><i class="sw" style="--h:200"></i><i class="sw" style="--h:20"></i> Процесс (дарвал RL-д сонгогдоно)</span>
+      <span><i class="sw hole"></i> Unused (hole)</span>
+      <span>Хаяг нь 0-ээс эхэлж, төгсгөлийн хаяг оролцдог (STAT-ын хэлбэртэй ижил)</span>
+    </div>
+    <dl class="metrics" id="metrics"></dl>
+  </section>
+
+  <div class="cols">
+    <div class="col">
+      <section class="card" aria-labelledby="h-term">
+        <div class="card-h">
+          <h2 id="h-term">Консол</h2>
+          <label class="tog"><input type="checkbox" id="verbose" checked> Дэлгэрэнгүй гаралт</label>
+        </div>
+        <div class="term" id="term" role="log" aria-live="polite" tabindex="0"></div>
+        <form id="cmdForm" class="cmdrow" autocomplete="off">
+          <label for="cmd" class="pr">allocator&gt;</label>
+          <input id="cmd" type="text" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="RQ P7 100000 B">
+        </form>
+        <p class="hint" style="margin-top:8px">Команд: RQ &lt;ID&gt; &lt;size&gt; &lt;F|B|W&gt; · RL &lt;ID&gt; · C · STAT · X · ↑/↓ түүх</p>
+      </section>
+
+      <section class="card" aria-labelledby="h-rq">
+        <div class="card-h"><h2 id="h-rq">Команд өгөх</h2></div>
+        <form id="rqForm" class="rq" novalidate>
+          <div class="field"><label for="pidIn">Process ID</label><input id="pidIn" type="text" value="P7" autocomplete="off" spellcheck="false"></div>
+          <div class="field"><label for="sizeIn">Хэмжээ (байт)</label><input id="sizeIn" type="text" inputmode="numeric" value="100000" autocomplete="off"></div>
+          <fieldset class="field strat">
+            <legend>Алгоритм</legend>
+            <div class="seg">
+              <label><input type="radio" name="st" value="F" id="stF"><span><b>F</b>First-fit</span></label>
+              <label><input type="radio" name="st" value="B" id="stB" checked><span><b>B</b>Best-fit</span></label>
+              <label><input type="radio" name="st" value="W" id="stW"><span><b>W</b>Worst-fit</span></label>
+            </div>
+          </fieldset>
+          <button class="btn primary" id="rqBtn" type="submit">RQ илгээх</button>
+        </form>
+        <div class="rowline">
+          <div class="field"><label for="rlSel">Чөлөөлөх процесс</label><select id="rlSel"></select></div>
+          <button class="btn" id="rlBtn" type="button">RL чөлөөлөх</button>
+        </div>
+        <div class="rowline">
+          <button class="btn" id="cBtn" type="button">C шахах</button>
+          <p class="hint" id="cHint"></p>
+        </div>
+        <div class="rowline">
+          <button class="btn" id="statBtn" type="button">STAT</button>
+          <button class="btn" id="xBtn" type="button">X гарах</button>
+          <label class="tog"><input type="checkbox" id="anim" checked> Хайлтыг алхамчилж харуулах</label>
+        </div>
+        <details class="det">
+          <summary>Командын скрипт (амжилттай командууд)</summary>
+          <textarea id="scriptText" readonly rows="6" aria-label="Командын скрипт"></textarea>
+          <button type="button" class="btn sm" id="copyScript">Хуулах</button>
+        </details>
+      </section>
+    </div>
+
+    <div class="col">
+      <section class="card" aria-labelledby="h-trace">
+        <div class="card-h"><h2 id="h-trace">Хайлтын явц</h2></div>
+        <div id="trace"></div>
+      </section>
+
+      <section class="card" aria-labelledby="h-cmp">
+        <div class="card-h"><h2 id="h-cmp">Алгоритмын харьцуулалт</h2></div>
+        <div id="compare"></div>
+      </section>
+
+      <section class="card" aria-labelledby="h-th">
+        <div class="card-h"><h2 id="h-th">Тайлангийн хэмжүүр</h2></div>
+        <dl class="theory" id="theory"></dl>
+      </section>
+    </div>
+  </div>
+
+  <section class="card" aria-labelledby="h-tbl">
+    <div class="card-h"><h2 id="h-tbl">Блокийн жагсаалт (STAT)</h2></div>
+    <div class="tbl-wrap">
+      <table>
+        <thead><tr><th>#</th><th>Төлөв</th><th class="r">Эхлэх</th><th class="r">Төгсөх</th><th class="r">Хэмжээ</th><th class="r">Хувь</th></tr></thead>
+        <tbody id="tbody"></tbody>
+      </table>
+    </div>
+    <details class="det">
+      <summary>STAT-ын текст гаралт</summary>
+      <textarea id="statText" readonly rows="6" aria-label="STAT гаралт"></textarea>
+      <button type="button" class="btn sm" id="copyStat">Хуулах</button>
+    </details>
+  </section>
+</div>
+
+<script>
+(function () {
+  'use strict';
+  var $ = function (s) { return document.querySelector(s); };
+  var fmt = function (n) { return Number(n).toLocaleString('en-US'); };
+  var STRAT = { F: 'First-fit', B: 'Best-fit', W: 'Worst-fit' };
+  var reduce = !!(window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches);
+  var sleep = function (ms) { return new Promise(function (r) { setTimeout(r, ms); }); };
+
+  var el = {
+    strip: $('#strip'), ruler: $('#ruler'), readout: $('#readout'), metrics: $('#metrics'),
+    term: $('#term'), cmd: $('#cmd'), pid: $('#pidIn'), size: $('#sizeIn'), rlSel: $('#rlSel'),
+    trace: $('#trace'), compare: $('#compare'), theory: $('#theory'), tbody: $('#tbody'),
+    maxIn: $('#maxIn'), maxErr: $('#maxErr'), note: $('#presetNote'), cHint: $('#cHint'),
+    scriptText: $('#scriptText'), statText: $('#statText'),
+    verbose: $('#verbose'), anim: $('#anim')
+  };
+
+  var MAX = 1048576, blocks = [], stats = null, cmdLog = [];
+  var undoStack = [], redoStack = [];
+  var ended = false, busy = false, queue = Promise.resolve();
+  var ui = { trace: null, scan: -1, pick: -1, fresh: null, preset: null };
+  var colorMap = new Map();
+  var cmdHist = [], histPos = 0;
+
+  var PRESETS = {
+    book: {
+      max: 1048576,
+      script: ['RQ P1 315001 F', 'RQ P3 197500 F', 'RQ P2 113075 F', 'RQ P6 99525 F', 'RL P2', 'STAT'],
+      suggest: { pid: 'P7', size: 100000, st: 'B' },
+      note: 'Жишээ өгөгдөл. Сурах бичгийн STAT гаралттай ижил хаягууд гарна: P1, P3, Unused, P6. P2-г чөлөөлсний дараа үүссэн hole-д Best-fit хүсэлт илгээж үзнэ үү.'
+    },
+    frag: {
+      max: 1000,
+      script: ['RQ P1 200 F', 'RQ P2 100 F', 'RQ P3 150 F', 'RQ P4 80 F', 'RQ P5 120 F', 'RL P2', 'RL P4'],
+      suggest: { pid: 'P6', size: 400, st: 'F' },
+      note: 'Жишээ өгөгдөл. Нийт сул зай 530 байт боловч хамгийн том hole 350 байт. RQ P6 400 F татгалзагдана (гадаад тасархайтал). Дараа нь C ажиллуулаад дахин илгээнэ үү.'
+    },
+    fbw: {
+      max: 1500,
+      script: ['RQ P1 40 F', 'RQ T1 180 F', 'RQ P2 40 F', 'RQ T2 300 F', 'RQ P3 40 F', 'RQ T3 140 F', 'RQ P4 40 F', 'RQ T4 260 F', 'RQ P5 460 F', 'RL T1', 'RL T2', 'RL T3', 'RL T4'],
+      suggest: { pid: 'P6', size: 130, st: 'F' },
+      note: 'Жишээ өгөгдөл. Hole-ууд 180, 300, 140, 260 байт. 130 байтын хүсэлтийг F, B, W гурав өөр hole-д байрлуулна. Буцаах товчоор нэг хүсэлтийг өөр алгоритмаар давтаж харьцуулна уу.'
+    }
+  };
+
+  /* ---------- helpers ---------- */
+  function hueOf(pid) {
+    if (!colorMap.has(pid)) colorMap.set(pid, (colorMap.size * 137.508 + 22) % 360);
+    return Math.round(colorMap.get(pid));
+  }
+  function newStats() { return { requests: 0, fails: 0, failsFrag: 0, compactions: 0, moved: 0, lastMoved: 0 }; }
+  function end(b) { return b.start + b.size - 1; }
+
+  function log(kind, text) {
+    var d = document.createElement('div');
+    d.className = 'line ' + kind;
+    if (kind === 'cmd') {
+      var p = document.createElement('span');
+      p.className = 'pr';
+      p.textContent = 'allocator> ';
+      d.appendChild(p);
+      d.appendChild(document.createTextNode(text));
+    } else {
+      d.textContent = text;
+    }
+    el.term.appendChild(d);
+    while (el.term.childNodes.length > 600) el.term.removeChild(el.term.firstChild);
+    el.term.scrollTop = el.term.scrollHeight;
+  }
+
+  function snap() { return JSON.stringify({ MAX: MAX, blocks: blocks, stats: stats, cmdLog: cmdLog }); }
+  function restore(s) {
+    var o = JSON.parse(s);
+    MAX = o.MAX; blocks = o.blocks; stats = o.stats; cmdLog = o.cmdLog;
+  }
+  function pushUndo(label) {
+    undoStack.push({ s: snap(), label: label });
+    if (undoStack.length > 300) undoStack.shift();
+    redoStack = [];
+  }
+  function undo() {
+    if (busy || ended || !undoStack.length) return;
+    var e = undoStack.pop();
+    redoStack.push({ s: snap(), label: e.label });
+    restore(e.s);
+    ui.trace = null; ui.fresh = null;
+    log('info', 'undo: state before "' + e.label + '"');
+    renderAll();
+  }
+  function redo() {
+    if (busy || ended || !redoStack.length) return;
+    var e = redoStack.pop();
+    undoStack.push({ s: snap(), label: e.label });
+    restore(e.s);
+    ui.trace = null; ui.fresh = null;
+    log('info', 'redo: "' + e.label + '"');
+    renderAll();
+  }
+
+  function holeList() {
+    var out = [], n = 0;
+    blocks.forEach(function (b, i) {
+      if (!b.pid) { n++; out.push({ b: b, i: i, n: n }); }
+    });
+    return out;
+  }
+
+  function plan(strat, size) {
+    var hl = holeList(), trace = [], best = -1, k;
+    for (k = 0; k < hl.length; k++) {
+      var h = hl[k], fits = h.b.size >= size;
+      if (strat === 'F') {
+        trace.push({ k: k, n: h.n, i: h.i, b: h.b, fits: fits });
+        if (fits) { best = k; break; }
+      } else {
+        var nb = false;
+        if (fits && (best < 0 || (strat === 'B' ? h.b.size < hl[best].b.size : h.b.size > hl[best].b.size))) {
+          best = k; nb = true;
+        }
+        trace.push({ k: k, n: h.n, i: h.i, b: h.b, fits: fits, nb: nb });
+      }
+    }
+    if (strat === 'F') {
+      for (k = trace.length; k < hl.length; k++) {
+        trace.push({ k: k, n: hl[k].n, i: hl[k].i, b: hl[k].b, skipped: true });
+      }
+    }
+    return { trace: trace, chosen: best < 0 ? null : hl[best], hl: hl };
+  }
+
+  function compactionPlan() {
+    var pos = 0, moved = 0, procs = 0, nb = [];
+    blocks.forEach(function (b) {
+      if (!b.pid) return;
+      if (b.start !== pos) { moved += b.size; procs++; }
+      nb.push({ start: pos, size: b.size, pid: b.pid });
+      pos += b.size;
+    });
+    if (pos < MAX) nb.push({ start: pos, size: MAX - pos, pid: null });
+    return { nb: nb, moved: moved, procs: procs };
+  }
+
+  function calc() {
+    var free = 0, largest = 0, nH = 0, N = 0;
+    blocks.forEach(function (b) {
+      if (b.pid) N++;
+      else { free += b.size; nH++; if (b.size > largest) largest = b.size; }
+    });
+    return { free: free, used: MAX - free, largest: largest, nH: nH, N: N, frag: free ? (free - largest) / free : 0 };
+  }
+
+  function nextPid() {
+    var m = 0;
+    blocks.forEach(function (b) {
+      var x = /^P(\d+)$/.exec(b.pid || '');
+      if (x) m = Math.max(m, +x[1]);
+    });
+    return 'P' + (m + 1);
+  }
+
+  function statLines() {
+    return blocks.map(function (b) {
+      return 'Addresses [' + b.start + ':' + end(b) + '] ' + (b.pid ? 'Process ' + b.pid : 'Unused');
+    });
+  }
+
+  /* ---------- commands ---------- */
+  function reset(max) {
+    MAX = max;
+    blocks = [{ start: 0, size: max, pid: null }];
+    stats = newStats();
+    cmdLog = []; undoStack = []; redoStack = [];
+    ended = false;
+    ui.trace = null; ui.scan = -1; ui.pick = -1; ui.fresh = null;
+    el.term.textContent = '';
+    log('info', '$ ./allocator ' + max);
+  }
+
+  async function run(line, opts) {
+    opts = opts || {};
+    var echo = opts.echo !== false, animate = opts.animate !== false;
+    line = line.trim();
+    if (!line) return;
+    if (echo) log('cmd', line);
+    if (opts.hist !== false) { cmdHist.push(line); histPos = cmdHist.length; }
+    ui.fresh = null;
+    if (ended) { log('err', 'allocator has exited. Press "Эхлүүлэх" to start again.'); return; }
+    var t = line.split(/\s+/), c = t[0].toUpperCase();
+    if (c === 'RQ') return doRQ(t, animate);
+    if (c === 'RL') return doRL(t);
+    if (c === 'C') return doC();
+    if (c === 'STAT') return doSTAT();
+    if (c === 'X') return doX();
+    if (c === 'HELP') {
+      log('info', 'RQ <Process_ID> <Size> <F|B|W>   request memory\nRL <Process_ID>                  release memory\nC                                compact free memory\nSTAT                             print memory regions\nX                                exit');
+      return;
+    }
+    log('err', 'Error: unknown command "' + t[0] + '". Use RQ, RL, C, STAT or X.');
+  }
+
+  async function doRQ(t, animate) {
+    if (t.length !== 4) { log('err', 'usage: RQ <Process_ID> <Size> <F|B|W>'); return; }
+    var pid = t[1], sizeS = t[2], st = t[3].toUpperCase();
+    if (!/^[A-Za-z0-9_]{1,12}$/.test(pid)) { log('err', 'Error: Process_ID must be 1-12 letters, digits or underscores.'); return; }
+    if (!/^\d+$/.test(sizeS) || +sizeS < 1) { log('err', 'Error: size must be a positive integer.'); return; }
+    if (!STRAT[st]) { log('err', 'Error: strategy must be F, B or W.'); return; }
+    if (blocks.some(function (b) { return b.pid === pid; })) {
+      log('err', 'Error: process ' + pid + ' already holds memory. Release it with RL ' + pid + ' first.');
+      return;
+    }
+    var size = +sizeS;
+    if (size > MAX) { log('err', 'Error: request for ' + size + ' bytes exceeds total memory (' + MAX + ').'); return; }
+
+    var pl = plan(st, size);
+    var T = { pid: pid, size: size, st: st, steps: [], chosen: null, failed: false, result: null, note: '' };
+    ui.trace = T;
+    var wait = animate && el.anim.checked && !reduce;
+    if (wait) {
+      for (var k = 0; k < pl.trace.length; k++) {
+        T.steps.push(pl.trace[k]);
+        ui.scan = pl.trace[k].i;
+        renderTrace(); renderStrip();
+        await sleep(pl.trace[k].skipped ? 0 : 420);
+      }
+    } else {
+      T.steps = pl.trace;
+    }
+    ui.scan = -1;
+    stats.requests++;
+
+    if (!pl.chosen) {
+      var cs = calc();
+      T.failed = true;
+      stats.fails++;
+      if (cs.free >= size) {
+        stats.failsFrag++;
+        T.note = 'Нийт сул зай ' + fmt(cs.free) + ' байт хүрэлцээтэй ч хамгийн том hole ' + fmt(cs.largest) + ' байт. Гадаад тасархайтал: C командаар шахаад дахин оролдоно уу.';
+        log('err', 'Error: request for ' + size + ' bytes denied. ' + cs.free + ' bytes are free but the largest hole is only ' + cs.largest + ' (external fragmentation). Run C to compact.');
+      } else {
+        T.note = 'Нийт сул зай ' + fmt(cs.free) + ' байт нь ' + fmt(size) + ' байтад хүрэхгүй.';
+        log('err', 'Error: request for ' + size + ' bytes denied. Only ' + cs.free + ' bytes are free.');
+      }
+      renderAll();
+      return;
+    }
+
+    T.chosen = pl.chosen.n;
+    ui.pick = pl.chosen.i;
+    renderTrace(); renderStrip();
+    if (wait) await sleep(520);
+    ui.pick = -1;
+
+    var label = 'RQ ' + pid + ' ' + size + ' ' + st;
+    pushUndo(label);
+    var hole = blocks[pl.chosen.i];
+    var repl = [{ start: hole.start, size: size, pid: pid }];
+    var rest = hole.size - size;
+    if (rest > 0) repl.push({ start: hole.start + size, size: rest, pid: null });
+    blocks.splice.apply(blocks, [pl.chosen.i, 1].concat(repl));
+    cmdLog.push(label);
+    T.result = { start: hole.start, end: hole.start + size - 1, rest: rest };
+    ui.fresh = pid;
+    if (el.verbose.checked) {
+      log('ok', pid + ' allocated [' + hole.start + ':' + (hole.start + size - 1) + '] (' + size + ' bytes), ' + STRAT[st] + ' -> hole H' + pl.chosen.n + ' (' + hole.size + ' bytes)' + (rest > 0 ? ', leftover hole ' + rest + ' bytes' : ', hole used exactly'));
+    }
+    if (el.pid.value.trim() === pid) el.pid.value = nextPid();
+    renderAll();
+  }
+
+  function doRL(t) {
+    if (t.length !== 2) { log('err', 'usage: RL <Process_ID>'); return; }
+    var pid = t[1];
+    var i = blocks.findIndex(function (b) { return b.pid === pid; });
+    if (i < 0) { log('err', 'Error: no memory is allocated to process ' + pid + '.'); return; }
+    var label = 'RL ' + pid;
+    pushUndo(label);
+    var freed = blocks[i];
+    var fs = freed.start, fe = end(freed);
+    blocks[i] = { start: freed.start, size: freed.size, pid: null };
+    var merges = 0;
+    if (i + 1 < blocks.length && !blocks[i + 1].pid) {
+      blocks[i].size += blocks[i + 1].size;
+      blocks.splice(i + 1, 1);
+      merges++;
+    }
+    if (i > 0 && !blocks[i - 1].pid) {
+      blocks[i - 1].size += blocks[i].size;
+      blocks.splice(i, 1);
+      i--;
+      merges++;
+    }
+    cmdLog.push(label);
+    ui.trace = null;
+    if (el.verbose.checked) {
+      log('ok', pid + ' released [' + fs + ':' + fe + ']' + (merges ? '; coalesced with ' + merges + ' adjacent hole' + (merges > 1 ? 's' : '') + ' -> Unused [' + blocks[i].start + ':' + end(blocks[i]) + '] (' + blocks[i].size + ' bytes)' : '; no adjacent hole to coalesce'));
+    }
+    renderAll();
+  }
+
+  function doC() {
+    if (!blocks.some(function (b) { return b.pid; })) { log('info', 'Nothing to compact: no process holds memory.'); return; }
+    var cp = compactionPlan();
+    if (cp.procs === 0) { log('info', 'Memory is already compact.'); return; }
+    pushUndo('C');
+    blocks = cp.nb;
+    stats.compactions++;
+    stats.moved += cp.moved;
+    stats.lastMoved = cp.moved;
+    cmdLog.push('C');
+    ui.trace = null;
+    var last = blocks[blocks.length - 1];
+    if (el.verbose.checked) {
+      log('ok', 'compaction: ' + cp.procs + ' process' + (cp.procs > 1 ? 'es' : '') + ' relocated (base addresses updated), ' + cp.moved + ' bytes moved; one hole ' + (last.pid ? 'none' : '[' + last.start + ':' + end(last) + '] (' + last.size + ' bytes)'));
+    }
+    renderAll();
+  }
+
+  function doSTAT() {
+    statLines().forEach(function (l) { log('out', l); });
+  }
+
+  function doX() {
+    ended = true;
+    log('info', 'exit');
+    renderAll();
+  }
+
+  /* ---------- queue ---------- */
+  async function exec(fn) {
+    busy = true; syncControls();
+    try { await fn(); }
+    catch (err) { log('err', 'internal error: ' + (err && err.message)); }
+    busy = false; ui.scan = -1; ui.pick = -1;
+    renderAll();
+  }
+  function enqueue(fn) { queue = queue.then(function () { return exec(fn); }); return queue; }
+  function enqueueRun(line, opts) { return enqueue(function () { return run(line, opts); }); }
+
+  function setSuggest(s) {
+    el.pid.value = s.pid;
+    el.size.value = s.size;
+    var r = document.querySelector('input[name="st"][value="' + s.st + '"]');
+    if (r) r.checked = true;
+  }
+  function showNote(txt) { el.note.textContent = txt || ''; el.note.hidden = !txt; }
+  function updateChips() {
+    document.querySelectorAll('.chip').forEach(function (c) {
+      c.setAttribute('aria-pressed', String(c.dataset.preset === ui.preset));
+    });
+  }
+  function loadPreset(key) {
+    var p = PRESETS[key];
+    return enqueue(async function () {
+      reset(p.max);
+      el.maxIn.value = p.max;
+      ui.preset = key;
+      for (var i = 0; i < p.script.length; i++) await run(p.script[i], { animate: false, hist: false });
+      ui.trace = null; ui.fresh = null;
+      setSuggest(p.suggest);
+      showNote(p.note);
+      updateChips();
+    });
+  }
+
+  /* ---------- rendering ---------- */
+  function pct(x) { return (x * 100).toFixed(1); }
+
+  function renderStrip() {
+    var W = el.strip.clientWidth || 640, h = 0;
+    el.strip.innerHTML = blocks.map(function (b, i) {
+      var hole = !b.pid; if (hole) h++;
+      var px = b.size / MAX * W, name = hole ? 'H' + h : b.pid;
+      var cls = ['blk', hole ? 'hole' : 'proc'];
+      if (i === ui.scan) cls.push('scan');
+      if (i === ui.pick) cls.push('pick');
+      if (!hole && b.pid === ui.fresh) cls.push('fresh');
+      var l1 = px >= 28 ? '<span class="l1">' + name + '</span>' : '';
+      var l2 = px >= 76 ? '<span class="l2">' + fmt(b.size) + '</span>' : '';
+      return '<button type="button" class="' + cls.join(' ') + '" data-i="' + i + '" style="flex-grow:' + b.size + ';' + (hole ? '' : '--h:' + hueOf(b.pid)) + '" aria-label="' + (hole ? 'Unused ' + name : 'Process ' + b.pid) + ', ' + b.start + ' to ' + end(b) + ', ' + b.size + ' bytes">' + l1 + l2 + '</button>';
+    }).join('');
+  }
+
+  function renderRuler() {
+    var pts = [0, 0.25, 0.5, 0.75, 1];
+    el.ruler.innerHTML = pts.map(function (p, k) {
+      var v = k === 4 ? MAX - 1 : Math.round(MAX * p);
+      var cls = 'tick' + (k === 0 ? ' f' : k === 4 ? ' l' : (k === 2 ? '' : ' mid'));
+      return '<span class="' + cls + '" style="left:' + (p * 100) + '%">' + fmt(v) + '</span>';
+    }).join('');
+  }
+
+  function renderMetrics() {
+    var m = calc();
+    var items = [
+      ['Ашиглагдсан', fmt(m.used), pct(m.used / MAX) + '%'],
+      ['Сул зай', fmt(m.free), pct(m.free / MAX) + '%'],
+      ['Hole-ийн тоо', String(m.nH), ''],
+      ['Хамгийн том hole', fmt(m.largest), ''],
+      ['Гадаад тасархайтал', pct(m.frag) + '%', '']
+    ];
+    el.metrics.innerHTML = items.map(function (it, k) {
+      var meter = k === 4 ? '<div class="meter" aria-hidden="true"><i style="width:' + pct(m.frag) + '%"></i></div>' : '';
+      return '<div><dt>' + it[0] + '</dt><dd>' + it[1] + (it[2] ? '<small>' + it[2] + '</small>' : '') + '</dd>' + meter + '</div>';
+    }).join('');
+  }
+
+  function renderTable() {
+    var h = 0;
+    el.tbody.innerHTML = blocks.map(function (b, i) {
+      var hole = !b.pid; if (hole) h++;
+      var sw = hole ? '<i class="sw hole"></i>' : '<i class="sw" style="--h:' + hueOf(b.pid) + '"></i>';
+      var name = hole ? 'Unused H' + h : 'Process ' + b.pid;
+      return '<tr data-i="' + i + '"><td class="num">' + (i + 1) + '</td><td><span class="state">' + sw + name + '</span></td><td class="num r">' + b.start + '</td><td class="num r">' + end(b) + '</td><td class="num r">' + fmt(b.size) + '</td><td class="num r">' + pct(b.size / MAX) + '%</td></tr>';
+    }).join('');
+    el.statText.value = statLines().join('\n');
+  }
+
+  function renderTrace() {
+    var T = ui.trace;
+    if (!T) {
+      el.trace.innerHTML = '<p class="empty">RQ хүсэлт өгөхөд алгоритм hole бүрийг хэрхэн шалгаж, аль нэгийг сонгосныг энд алхам алхмаар харуулна.</p>';
+      return;
+    }
+    var rows = T.steps.map(function (s) {
+      var cls, txt;
+      if (s.skipped) { cls = 'v-skip'; txt = 'шалгаагүй'; }
+      else if (!s.fits) { cls = 'v-small'; txt = 'багтахгүй'; }
+      else if (T.chosen === s.n) { cls = 'v-pick'; txt = 'сонгогдсон'; }
+      else if (T.chosen !== null && T.st !== 'F') { cls = 'v-fit'; txt = 'багтана, хамгийн ' + (T.st === 'B' ? 'жижиг' : 'том') + ' биш'; }
+      else if (T.st === 'F') { cls = 'v-best'; txt = 'багтана'; }
+      else if (s.nb) { cls = 'v-best'; txt = 'одоогоор хамгийн ' + (T.st === 'B' ? 'жижиг' : 'том'); }
+      else { cls = 'v-fit'; txt = 'багтана'; }
+      return '<tr' + (s.i === ui.scan ? ' class="cur"' : '') + '><td class="num">H' + s.n + '</td><td class="num">' + s.b.start + '–' + end(s.b) + '</td><td class="num r">' + fmt(s.b.size) + '</td><td><span class="vd ' + cls + '">' + txt + '</span></td></tr>';
+    }).join('');
+    var sum = '';
+    if (T.failed) sum = '<p class="tr-sum bad">Багтах hole олдсонгүй. ' + T.note + '</p>';
+    else if (T.result) sum = '<p class="tr-sum ok">' + T.pid + ' → H' + T.chosen + ' дотор [' + T.result.start + ':' + T.result.end + '] байрлав' + (T.result.rest > 0 ? '; үлдсэн hole ' + fmt(T.result.rest) + ' байт.' : '; hole бүрэн ашиглагдав.') + '</p>';
+    var body = T.steps.length
+      ? '<div class="tbl-wrap"><table><thead><tr><th>Hole</th><th>Хаяг</th><th class="r">Хэмжээ</th><th>Үр дүн</th></tr></thead><tbody>' + rows + '</tbody></table></div>'
+      : '<p class="empty">Сул hole байхгүй.</p>';
+    el.trace.innerHTML = '<div class="tr-head"><code>RQ ' + T.pid + ' ' + fmt(T.size) + ' ' + T.st + '</code><span>' + STRAT[T.st] + ' · hole-ын дугаар хүсэлт өгөх үеийнх</span></div>' + body + sum;
+  }
+
+  function renderCompare() {
+    var raw = el.size.value.trim();
+    var size = /^\d+$/.test(raw) ? +raw : 0;
+    if (!size) {
+      el.compare.innerHTML = '<p class="empty">Хэмжээгээ оруулбал F, B, W тус бүр уг хүсэлтийг хаана байрлуулахыг энд харуулна.</p>';
+      return;
+    }
+    var picks = ['F', 'B', 'W'].map(function (s) { return { s: s, p: plan(s, size) }; });
+    var ids = new Set(picks.map(function (x) { return x.p.chosen ? x.p.chosen.i : -1; }));
+    var items = picks.map(function (x) {
+      var c = x.p.chosen;
+      if (!c) return '<li class="cmp none"><b>' + x.s + '</b><span>' + STRAT[x.s] + '</span><span class="where">багтах hole алга</span></li>';
+      return '<li class="cmp" tabindex="0" data-i="' + c.i + '"><b>' + x.s + '</b><span>' + STRAT[x.s] + '</span><span class="where">H' + c.n + ' · ' + c.b.start + '–' + end(c.b) + '</span><span class="rest">hole ' + fmt(c.b.size) + ' байт, үлдэх нь ' + fmt(c.b.size - size) + ' байт</span></li>';
+    }).join('');
+    var note;
+    if (ids.size === 1 && ids.has(-1)) note = 'Нийт ' + fmt(size) + ' байт багтах hole байхгүй тул гурван алгоритм бүгд татгалзана.';
+    else if (ids.size === 1) note = 'Энэ хүсэлтэд гурван алгоритм ижил hole сонгоно.';
+    else note = 'Алгоритмууд өөр өөр hole сонгоно. Мөр дээр заагчаа аваачвал зураглал дээр тэмдэглэгдэнэ.';
+    el.compare.innerHTML = '<ul class="cmp-list">' + items + '</ul><p class="cmp-note">' + note + '</p>';
+  }
+
+  function renderTheory() {
+    var m = calc(), cp = compactionPlan();
+    el.theory.innerHTML =
+      '<div><dt>Гадаад тасархайтал</dt><dd><span class="big">' + pct(m.frag) + '%</span><span class="small">Сул ' + fmt(m.free) + ' байтаас ' + fmt(m.free - m.largest) + ' байт нь хамгийн том hole-оос гадна тархсан байна.</span></dd></div>' +
+      '<div><dt>50-percent rule</dt><dd><span class="big">N = ' + m.N + ' · hole = ' + m.nH + '</span><span class="small">First-fit үед N хуваарилагдсан блок тутамд ойролцоогоор 0.5N блок тасархайтлаас алдагдана, ө.х. санах ойн ойролцоогоор 1/3 ашиглагдахгүй байж болно. Одоогийн N/2 = ' + (m.N / 2).toFixed(1) + '. Энэ нь олон удаагийн хуваарилалтын дараах статистик таамаг.</span></dd></div>' +
+      '<div><dt>Шахалтын өртөг (C)</dt><dd><span class="big">' + fmt(cp.moved) + ' байт · ' + cp.procs + ' процесс</span><span class="small">Одоо C ажиллуулбал зөөгдөх хэмжээ. Нийт зөөсөн ' + fmt(stats.moved) + ' байт (' + stats.compactions + ' удаа). Шилжүүлэлт нь dynamic relocation буюу base address шинэчлэлт дээр тулгуурлана.</span></dd></div>' +
+      '<div><dt>Татгалзсан хүсэлт</dt><dd><span class="big">' + stats.fails + ' / ' + stats.requests + '</span><span class="small">Үүнээс ' + stats.failsFrag + ' нь нийт сул зай хүрэлцээтэй хэрнээ тасархайтлаас болж татгалзагдсан.</span></dd></div>';
+  }
+
+  function renderCtl() {
+    var procs = blocks.filter(function (b) { return b.pid; });
+    var cur = el.rlSel.value;
+    el.rlSel.innerHTML = procs.length
+      ? procs.map(function (b) { return '<option value="' + b.pid + '">' + b.pid + ' · ' + fmt(b.size) + ' байт</option>'; }).join('')
+      : '<option value="">процесс алга</option>';
+    if (procs.some(function (b) { return b.pid === cur; })) el.rlSel.value = cur;
+    var cp = compactionPlan();
+    el.cHint.textContent = !procs.length ? 'Процесс байхгүй.' : cp.procs === 0 ? 'Санах ой аль хэдийн шахагдсан.' : 'Ажиллуулбал ' + fmt(cp.moved) + ' байт (' + cp.procs + ' процесс) зөөгдөнө.';
+    el.scriptText.value = '# ./allocator ' + MAX + '\n' + cmdLog.join('\n');
+    syncControls();
+  }
+
+  function syncControls() {
+    var procs = blocks.some(function (b) { return b.pid; });
+    el.cmd.disabled = ended;
+    ['rqBtn', 'cBtn', 'statBtn', 'xBtn'].forEach(function (id) { $('#' + id).disabled = ended; });
+    $('#rlBtn').disabled = ended || !procs;
+    $('#undoBtn').disabled = ended || busy || !undoStack.length;
+    $('#redoBtn').disabled = ended || busy || !redoStack.length;
+    $('#resetBtn').disabled = busy;
+    document.querySelectorAll('.chip').forEach(function (c) { c.disabled = busy; });
+  }
+
+  function readoutDefault() {
+    el.readout.textContent = 'Блок дээр заагчаа аваачвал (эсвэл Tab-аар сонговол) хаяг, хэмжээ харагдана.';
+  }
+  function hover(i) {
+    document.querySelectorAll('.hl').forEach(function (e) { e.classList.remove('hl'); });
+    var b = i == null ? null : blocks[i];
+    if (!b) { readoutDefault(); return; }
+    document.querySelectorAll('[data-i="' + i + '"]').forEach(function (e) { e.classList.add('hl'); });
+    var hn = 0;
+    for (var k = 0; k <= i; k++) if (!blocks[k].pid) hn++;
+    el.readout.textContent = (b.pid ? 'Process ' + b.pid : 'Unused H' + hn) + ' · [' + b.start + ':' + end(b) + '] · ' + fmt(b.size) + ' байт · ' + pct(b.size / MAX) + '%';
+  }
+
+  function renderAll() {
+    renderStrip(); renderRuler(); renderMetrics(); renderTable();
+    renderTrace(); renderCompare(); renderTheory(); renderCtl();
+    hover(null);
+  }
+
+  /* ---------- events ---------- */
+  document.addEventListener('mouseover', function (e) {
+    var t = e.target.closest && e.target.closest('[data-i]');
+    if (t) hover(+t.dataset.i);
+  });
+  document.addEventListener('mouseout', function (e) {
+    var t = e.target.closest && e.target.closest('[data-i]');
+    if (t) hover(null);
+  });
+  document.addEventListener('focusin', function (e) {
+    var t = e.target.closest && e.target.closest('[data-i]');
+    if (t) hover(+t.dataset.i);
+  });
+  document.addEventListener('focusout', function (e) {
+    var t = e.target.closest && e.target.closest('[data-i]');
+    if (t) hover(null);
+  });
+  el.strip.addEventListener('click', function (e) {
+    var t = e.target.closest('.blk');
+    if (!t) return;
+    var b = blocks[+t.dataset.i];
+    if (b && b.pid) el.rlSel.value = b.pid;
+  });
+
+  $('#cmdForm').addEventListener('submit', function (e) {
+    e.preventDefault();
+    var v = el.cmd.value;
+    el.cmd.value = '';
+    enqueueRun(v);
+  });
+  el.cmd.addEventListener('keydown', function (e) {
+    if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      if (histPos > 0) { histPos--; el.cmd.value = cmdHist[histPos]; }
+    } else if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      if (histPos < cmdHist.length - 1) { histPos++; el.cmd.value = cmdHist[histPos]; }
+      else { histPos = cmdHist.length; el.cmd.value = ''; }
+    }
+  });
+
+  $('#rqForm').addEventListener('submit', function (e) {
+    e.preventDefault();
+    var st = document.querySelector('input[name="st"]:checked').value;
+    enqueueRun('RQ ' + el.pid.value.trim() + ' ' + el.size.value.trim().replace(/[,\s]/g, '') + ' ' + st);
+  });
+  $('#rlBtn').addEventListener('click', function () { if (el.rlSel.value) enqueueRun('RL ' + el.rlSel.value); });
+  $('#cBtn').addEventListener('click', function () { enqueueRun('C'); });
+  $('#statBtn').addEventListener('click', function () { enqueueRun('STAT'); });
+  $('#xBtn').addEventListener('click', function () { enqueueRun('X'); });
+  $('#undoBtn').addEventListener('click', undo);
+  $('#redoBtn').addEventListener('click', redo);
+  el.size.addEventListener('input', renderCompare);
+
+  document.querySelectorAll('.chip').forEach(function (c) {
+    c.addEventListener('click', function () { if (!busy) loadPreset(c.dataset.preset); });
+  });
+
+  $('#initForm').addEventListener('submit', function (e) {
+    e.preventDefault();
+    var raw = el.maxIn.value.trim().replace(/[,\s]/g, '');
+    if (!/^\d+$/.test(raw) || +raw < 16 || +raw > 2000000000) {
+      el.maxErr.textContent = 'MAX нь 16-аас 2,000,000,000 хүртэлх бүхэл тоо байна.';
+      el.maxErr.hidden = false;
+      return;
+    }
+    el.maxErr.hidden = true;
+    var m = +raw;
+    enqueue(async function () {
+      reset(m);
+      ui.preset = null;
+      setSuggest({ pid: 'P1', size: Math.max(1, Math.round(m / 8)), st: 'F' });
+      showNote('');
+      updateChips();
+    });
+  });
+
+  function copyText(text, btn) {
+    var orig = btn.textContent;
+    var done = function (msg) { btn.textContent = msg; setTimeout(function () { btn.textContent = orig; }, 1600); };
+    try {
+      navigator.clipboard.writeText(text).then(function () { done('Хуулсан'); }, function () {
+        var ta = btn.parentElement.querySelector('textarea');
+        if (ta) { ta.focus(); ta.select(); }
+        done('Сонгосон, гараар хуулна уу');
+      });
+    } catch (err) {
+      var ta2 = btn.parentElement.querySelector('textarea');
+      if (ta2) { ta2.focus(); ta2.select(); }
+      done('Сонгосон, гараар хуулна уу');
+    }
+  }
+  $('#copyScript').addEventListener('click', function (e) { copyText(el.scriptText.value, e.currentTarget); });
+  $('#copyStat').addEventListener('click', function (e) { copyText(el.statText.value, e.currentTarget); });
+
+  if (window.ResizeObserver) {
+    var lastW = 0;
+    new ResizeObserver(function () {
+      var w = el.strip.clientWidth;
+      if (w !== lastW) { lastW = w; renderStrip(); }
+    }).observe(el.strip);
+  }
+
+  readoutDefault();
+  loadPreset('book');
+})();
+</script>
