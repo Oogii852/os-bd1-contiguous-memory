@@ -56,7 +56,6 @@ Windows: `mvn compile` хийгээд `allocator.cmd 10000` (консолыг `c
 - `tests/` - black-box тест ба `run_tests.sh`
 - `examples/` - жишээ оролт (номын жишээ, тайлангийн жишээ 2, F/B/W харьцуулалт)
 - `docs/` - Manual
-- `contiguous-allocator.html` - браузерт ажилладаг туслах симулятор
 
 ## Бэлэн код, сан, AI
 Сан: JavaFX 21, JUnit 5. Бусад бэлэн код ашиглаагүй.
