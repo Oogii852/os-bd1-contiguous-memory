@@ -85,4 +85,60 @@ class MemoryManagerTest {
         assertEquals("Addresses [0:39999] Process P0\nAddresses [40000:1048575] Unused", m.stat());
         assertEquals("Гарлаа", m.execute("X"));
     }
+
+    /** Номын 212 байтын жишээ: hole 100, 500, 200, 300, 600 (1 байтын process-оор тусгаарласан). */
+    private MemoryManager bookHoles() {
+        MemoryManager m = mm(1704);
+        long[] holes = {100, 500, 200, 300, 600};
+        for (int i = 0; i < holes.length; i++) {
+            m.allocate("H" + i, holes[i], "F");
+            if (i < holes.length - 1) m.allocate("S" + i, 1, "F");
+        }
+        for (int i = 0; i < holes.length; i++) m.release("H" + i);
+        return m;
+    }
+
+    @Test void threeStrategiesOnBookExample() {
+        // F: эхний багтах (500), B: хамгийн жижиг багтах (300), W: хамгийн том (600)
+        assertEquals(101, bookHoles().allocate("P", 212, "F").start());
+        assertEquals(803, bookHoles().allocate("P", 212, "B").start());
+        assertEquals(1104, bookHoles().allocate("P", 212, "W").start());
+        MemoryManager m = bookHoles();
+        m.allocate("P", 212, "B");
+        assertEquals(300, m.lastChosenHole().size()); // UI-д сонгосон hole-ыг тэмдэглэнэ
+    }
+
+    @Test void statVerboseAndArgumentChecks() {
+        MemoryManager m = mm(10000);
+        m.execute("RQ P1 3000 F");
+        m.execute("RQ P2 2000 F");
+        m.execute("RQ P3 1500 F");
+        m.execute("RL P2");
+        m.execute("RQ P4 400 F");
+        String v = m.execute("STAT -v");
+        assertTrue(v.startsWith(m.stat()));
+        assertTrue(v.endsWith("External fragmentation: 1600 байт (31.4%)"));
+        assertThrows(IllegalArgumentException.class, () -> m.execute("STAT extra"));
+        assertThrows(IllegalArgumentException.class, () -> m.execute("C extra"));
+        assertThrows(IllegalArgumentException.class, () -> m.execute("X extra"));
+        var big = assertThrows(IllegalArgumentException.class, () -> m.execute("RQ P9 99999999999999999999 F"));
+        assertTrue(big.getMessage().contains("хэт их"));
+    }
+
+    @Test void parseMemorySizeGivesSameMongolianError() {
+        assertEquals(10000, MemoryManager.parseMemorySize(" 10000 "));
+        assertEquals(Long.MAX_VALUE, MemoryManager.parseMemorySize("9223372036854775807"));
+        for (String bad : new String[]{"abc", "1.5", "", "0", "-5", "9223372036854775808"}) {
+            var ex = assertThrows(IllegalArgumentException.class, () -> MemoryManager.parseMemorySize(bad));
+            assertTrue(ex.getMessage().startsWith("Санах ойн хэмжээ 1-ээс"), bad);
+        }
+    }
+
+    @Test void commandsCaseInsensitiveButNamesCaseSensitive() {
+        MemoryManager m = mm(100);
+        m.execute("RQ P1 10 F");
+        assertDoesNotThrow(() -> m.execute("rq p1 10 f")); // p1 нь P1-ээс өөр process
+        m.execute("rl p1");
+        assertTrue(m.stat().contains("Process P1"));
+    }
 }

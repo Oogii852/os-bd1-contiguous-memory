@@ -1,0 +1,26 @@
+Амжилттай: P1 -> [0 : 2999]
+Амжилттай: P2 -> [3000 : 4999]
+Амжилттай: P3 -> [5000 : 6499]
+Чөлөөлсөн: P2
+Амжилттай: P4 -> [3000 : 3399]
+Addresses [0:2999] Process P1
+Addresses [3000:3399] Process P4
+Addresses [3400:4999] Unused
+Addresses [5000:6499] Process P3
+Addresses [6500:9999] Unused
+Нийт: 10000 | Ашигласан: 4900 | Чөлөөт: 5100 | Hole: 2 | Хамгийн том hole: 3500 | External fragmentation: 1600 байт (31.4%)
+ERROR: Формат: STAT эсвэл STAT -v
+ERROR: Формат: STAT эсвэл STAT -v
+ERROR: Формат: C
+ERROR: Хэмжээ хэт их: '99999999999999999999' (хамгийн ихдээ 9223372036854775807)
+ERROR: Хэмжээ бүхэл тоо байх ёстой: '5.5'
+ERROR: External fragmentation: нийт чөлөөт зай 5100 байт хүрэлцэх боловч хамгийн том hole 3500 байт. Compaction (C) хийнэ үү.
+Compaction дууслаа, шилжүүлсэн: 1500 байт
+Амжилттай: P5 -> [4900 : 8899]
+Addresses [0:2999] Process P1
+Addresses [3000:3399] Process P4
+Addresses [3400:4899] Process P3
+Addresses [4900:8899] Process P5
+Addresses [8900:9999] Unused
+Нийт: 10000 | Ашигласан: 8900 | Чөлөөт: 1100 | Hole: 1 | Хамгийн том hole: 1100 | External fragmentation: 0 байт (0.0%)
+Амжилттай: p1 -> [8900 : 8909]

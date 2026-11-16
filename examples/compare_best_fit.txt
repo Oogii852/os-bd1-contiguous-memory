@@ -1,0 +1,19 @@
+# Номын 212 байтын жишээ (тайлан 3.4): hole 100, 500, 200, 300, 600; ./allocator.sh 1704 < examples/compare_best_fit.txt
+RQ H1 100 F
+RQ S1 1 F
+RQ H2 500 F
+RQ S2 1 F
+RQ H3 200 F
+RQ S3 1 F
+RQ H4 300 F
+RQ S4 1 F
+RQ H5 600 F
+RL H1
+RL H2
+RL H3
+RL H4
+RL H5
+STAT
+RQ P 212 B
+STAT -v
+X

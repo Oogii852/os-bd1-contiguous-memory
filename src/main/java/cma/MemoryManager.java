@@ -19,6 +19,23 @@ public class MemoryManager {
 
     private final long total;
     private final List<Block> blocks = new ArrayList<>();
+    /** Сүүлийн амжилттай RQ-д сонгогдсон hole (хуваахаас өмнөх байдлаар). UI тайлбарт ашиглана. */
+    private Block lastChosenHole;
+
+    /**
+     * Санах ойн хэмжээг текстээс уншина (Cli болон UI хоёулаа үүнийг ашиглана).
+     * Тоо биш, хэт том, 0 эсвэл сөрөг бол ижил Монгол алдаа өгнө.
+     */
+    public static long parseMemorySize(String text) {
+        String s = text == null ? "" : text.trim();
+        String msg = "Санах ойн хэмжээ 1-ээс " + Long.MAX_VALUE + " хүртэлх бүхэл тоо байх ёстой: '" + s + "'";
+        if (!s.matches("[+-]?\\d+")) throw new IllegalArgumentException(msg);
+        long v;
+        try { v = Long.parseLong(s); }
+        catch (NumberFormatException e) { throw new IllegalArgumentException(msg); } // хэт урт тоо
+        if (v <= 0) throw new IllegalArgumentException(msg);
+        return v;
+    }
 
     public MemoryManager(long total) {
         if (total <= 0) {
@@ -31,6 +48,9 @@ public class MemoryManager {
     public long total() { return total; }
 
     public List<Block> snapshot() { return List.copyOf(blocks); }
+
+    /** Сүүлийн RQ-д аль hole сонгогдсон (байхгүй бол null). */
+    public Block lastChosenHole() { return lastChosenHole; }
 
     /** Санах ой хүсэх. */
     public Block allocate(String name, long size, String strategy) {
@@ -69,6 +89,7 @@ public class MemoryManager {
                 + " байт, чөлөөт нийт " + free() + " байт.");
         }
         Block h = blocks.get(idx);
+        lastChosenHole = h;
         Block alloc = new Block(h.start(), size, name);
         blocks.set(idx, alloc);
         if (h.size() > size) { // hole-ыг хоёр хуваана
@@ -141,7 +162,16 @@ public class MemoryManager {
         return sb.toString().stripTrailing();
     }
 
-    /** Номын командыг ажиллуулна: RQ, RL, C, STAT. */
+    /** Статистикийн нэг мөр (STAT -v болон JavaFX цонх ижил текст харуулна). */
+    public String summary() {
+        long free = free();
+        double pct = free == 0 ? 0 : 100.0 * externalFragmentation() / free;
+        return String.format(java.util.Locale.ROOT,
+            "Нийт: %d | Ашигласан: %d | Чөлөөт: %d | Hole: %d | Хамгийн том hole: %d | External fragmentation: %d байт (%.1f%%)",
+            total, used(), free, holeCount(), largestHole(), externalFragmentation(), pct);
+    }
+
+    /** Номын командыг ажиллуулна: RQ, RL, C, STAT (STAT -v), X. Команд, strategy том/жижиг үсэг хамаарахгүй, process нэр ялгана. */
     public String execute(String line) {
         if (line == null || line.isBlank()) {
             throw new IllegalArgumentException("Хоосон команд");
@@ -151,8 +181,13 @@ public class MemoryManager {
             case "RQ": {
                 if (t.length != 4) throw new IllegalArgumentException("Формат: RQ <нэр> <хэмжээ> <F|B|W>");
                 long sz;
+                if (!t[2].matches("[+-]?\\d+")) {
+                    throw new IllegalArgumentException("Хэмжээ бүхэл тоо байх ёстой: '" + t[2] + "'");
+                }
                 try { sz = Long.parseLong(t[2]); }
-                catch (NumberFormatException e) { throw new IllegalArgumentException("Хэмжээ бүхэл тоо байх ёстой: '" + t[2] + "'"); }
+                catch (NumberFormatException e) { // бүхэл тоо мөн боловч long-д багтахгүй
+                    throw new IllegalArgumentException("Хэмжээ хэт их: '" + t[2] + "' (хамгийн ихдээ " + Long.MAX_VALUE + ")");
+                }
                 Block b = allocate(t[1], sz, t[3]);
                 return "Амжилттай: " + b.owner() + " -> [" + b.start() + " : " + b.end() + "]";
             }
@@ -166,9 +201,12 @@ public class MemoryManager {
                 return "Compaction дууслаа, шилжүүлсэн: " + compact() + " байт";
             }
             case "STAT": {
-                return stat();
+                if (t.length == 1) return stat();
+                if (t.length == 2 && t[1].equalsIgnoreCase("-v")) return stat() + "\n" + summary(); // нэмэлт статистик
+                throw new IllegalArgumentException("Формат: STAT эсвэл STAT -v");
             }
             case "X": {
+                if (t.length != 1) throw new IllegalArgumentException("Формат: X");
                 return "Гарлаа";
             }
             default:

@@ -1,0 +1,35 @@
+Амжилттай: H1 -> [0 : 99]
+Амжилттай: S1 -> [100 : 100]
+Амжилттай: H2 -> [101 : 600]
+Амжилттай: S2 -> [601 : 601]
+Амжилттай: H3 -> [602 : 801]
+Амжилттай: S3 -> [802 : 802]
+Амжилттай: H4 -> [803 : 1102]
+Амжилттай: S4 -> [1103 : 1103]
+Амжилттай: H5 -> [1104 : 1703]
+Чөлөөлсөн: H1
+Чөлөөлсөн: H2
+Чөлөөлсөн: H3
+Чөлөөлсөн: H4
+Чөлөөлсөн: H5
+Addresses [0:99] Unused
+Addresses [100:100] Process S1
+Addresses [101:600] Unused
+Addresses [601:601] Process S2
+Addresses [602:801] Unused
+Addresses [802:802] Process S3
+Addresses [803:1102] Unused
+Addresses [1103:1103] Process S4
+Addresses [1104:1703] Unused
+Амжилттай: P -> [101 : 312]
+Addresses [0:99] Unused
+Addresses [100:100] Process S1
+Addresses [101:312] Process P
+Addresses [313:600] Unused
+Addresses [601:601] Process S2
+Addresses [602:801] Unused
+Addresses [802:802] Process S3
+Addresses [803:1102] Unused
+Addresses [1103:1103] Process S4
+Addresses [1104:1703] Unused
+Нийт: 1704 | Ашигласан: 216 | Чөлөөт: 1488 | Hole: 5 | Хамгийн том hole: 600 | External fragmentation: 888 байт (59.7%)
